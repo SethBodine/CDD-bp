@@ -28,7 +28,7 @@ jobs:
       with:
         upstream_repository: jbsparrow/CyberDropDownloader
         upstream_branch: master
-        target_branch: main
+        target_branch: upstream
         git_pull_args: --ff-only                    # optional arg use, defaults to simple 'pull'
         github_token: ${{ secrets.GITHUB_TOKEN }}   # optional, for accessing repos that require authentication
 
