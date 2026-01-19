@@ -1,0 +1,158 @@
+# .github/workflows/sync-upstream.yml
+#
+# This workflow automatically syncs your fork with its upstream repository.
+# It discovers the upstream repo and branch automatically, so it works across
+# any fork without modification.
+#
+# REQUIRED SETUP:
+# 
+# 1. Enable GitHub Actions workflow permissions:
+#    a. Go to your fork → Settings → Actions → General
+#    b. Scroll to "Workflow permissions"
+#    c. Select "Read and write permissions"
+#    d. Check "Allow GitHub Actions to create and approve pull requests"
+#    e. Click "Save"
+#
+# 2. Create a Fine-grained Personal Access Token (required for protected branches):
+#    a. Go to GitHub.com → Your Profile → Settings
+#    b. Developer settings → Personal access tokens → Fine-grained tokens
+#    c. Click "Generate new token"
+#    d. Token name: "Fork Sync Workflow"
+#    e. Expiration: Choose your preference (90 days, 1 year, or custom)
+#    f. Repository access: "Only select repositories" → Choose your fork repo
+#    g. Permissions → Repository permissions:
+#       - Contents: Read and write
+#       - Pull requests: Read and write
+#       - Workflows: Read and write (required if upstream has workflow files)
+#       - Metadata: Read-only (automatically selected)
+#    h. Click "Generate token" and copy it
+#
+# 3. Add the token to your repository:
+#    a. Go to your fork → Settings → Secrets and variables → Actions
+#    b. Click "New repository secret"
+#    c. Name: PAT_TOKEN
+#    d. Value: Paste the token you copied
+#    e. Click "Add secret"
+#
+# BRANCH PROTECTION:
+# If your main branch is protected, this workflow will create a PR instead
+# of pushing directly. The PR will be auto-merged if checks pass.
+#
+# The workflow runs every 6 hours and only syncs when upstream has new commits.
+# You can also trigger it manually from the Actions tab.
+
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    # Check for upstream changes every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Allows manual trigger from Actions tab
+
+# Required for pushing synced changes to your fork and creating PRs
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref_name }}
+          
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+      - name: Discover and add upstream
+        run: |
+          # Get current branch name
+          CURRENT_BRANCH="${{ github.ref_name }}"
+          echo "📍 Current fork branch: $CURRENT_BRANCH"
+          
+          # Get the parent repo info from GitHub API
+          PARENT=$(curl -s -H "Authorization: token ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}" | \
+            jq -r '.parent.full_name // empty')
+          
+          if [ -z "$PARENT" ]; then
+            echo "❌ This doesn't appear to be a fork"
+            exit 1
+          fi
+          
+          echo "🔍 Discovered upstream: $PARENT"
+          git remote add upstream "https://github.com/${PARENT}.git" || true
+          git fetch upstream
+          
+          # Get default branch of upstream
+          DEFAULT_BRANCH=$(git remote show upstream | grep 'HEAD branch' | cut -d' ' -f5)
+          echo "🔍 Upstream default branch: $DEFAULT_BRANCH"
+          echo "UPSTREAM_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
+          echo "FORK_BRANCH=$CURRENT_BRANCH" >> $GITHUB_ENV
+          
+      - name: Check for updates and sync
+        run: |
+          # Set up authentication for push
+          git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          
+          LOCAL=$(git rev-parse HEAD)
+          REMOTE=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "✅ Already up to date with upstream"
+            exit 0
+          fi
+          
+          echo "📦 New commits found in upstream, syncing..."
+          echo "   Merging upstream/${{ env.UPSTREAM_BRANCH }} into ${{ env.FORK_BRANCH }}"
+          
+          # Create a sync branch
+          SYNC_BRANCH="sync-upstream-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$SYNC_BRANCH"
+          git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit
+          
+          # Try to push directly first (works if branch is not protected)
+          if git push origin "$SYNC_BRANCH:${{ env.FORK_BRANCH }}" 2>/dev/null; then
+            echo "✅ Successfully pushed directly to ${{ env.FORK_BRANCH }}"
+            exit 0
+          fi
+          
+          # If direct push fails, create a PR instead
+          echo "⚠️  Direct push failed (likely due to branch protection)"
+          echo "📝 Creating pull request instead..."
+          
+          git push origin "$SYNC_BRANCH"
+          
+          # Create PR using GitHub CLI
+          COMMIT_COUNT=$(git rev-list --count HEAD ^origin/${{ env.FORK_BRANCH }})
+          PR_URL=$(gh pr create \
+            --title "🔄 Sync with upstream (${{ env.UPSTREAM_BRANCH }})" \
+            --body "This PR syncs the fork with the latest changes from upstream/${{ env.UPSTREAM_BRANCH }}. Upstream commits: $COMMIT_COUNT. This PR was automatically created by the sync workflow and will be auto-merged." \
+            --base "${{ env.FORK_BRANCH }}" \
+            --head "$SYNC_BRANCH")
+          
+          echo "✅ Pull request created: $PR_URL"
+          
+          # Auto-merge the PR
+          echo "🔀 Auto-merging pull request..."
+          gh pr merge "$PR_URL" --merge --auto
+          
+          echo "✅ Pull request will be merged automatically once checks pass"
+          
+          # Wait a bit for the merge to complete
+          sleep 10
+          
+          # Clean up the sync branch
+          echo "🧹 Cleaning up sync branch..."
+          git push origin --delete "$SYNC_BRANCH" || echo "⚠️  Branch may have been auto-deleted"
+          
+          echo "✅ Sync complete!"
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
