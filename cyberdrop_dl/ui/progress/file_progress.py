@@ -1,133 +1,78 @@
-from typing import List, Optional, TYPE_CHECKING
+from __future__ import annotations
 
-from rich.console import Group
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, \
-    TaskID
+from typing import TYPE_CHECKING
+
+from rich.markup import escape
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
+
+from cyberdrop_dl.ui.progress.deque_progress import DequeProgress, adjust_title
 
 if TYPE_CHECKING:
     from cyberdrop_dl.managers.manager import Manager
 
 
-async def adjust_title(s: str, length: int = 40, placeholder: str = "...") -> str:
-    """Collapse and truncate or pad the given string to fit in the given length"""
-    return f"{s[:length - len(placeholder)]}{placeholder}" if len(s) >= length else s.ljust(length)
+class FileProgress(DequeProgress):
+    """Class that manages the download progress of individual files."""
 
-
-class FileProgress:
-    """Class that manages the download progress of individual files"""
-
-    def __init__(self, visible_tasks_limit: int, manager: 'Manager'):
+    def __init__(self, manager: Manager) -> None:
         self.manager = manager
+        progress_colums = (SpinnerColumn(), "[progress.description]{task.description}", BarColumn(bar_width=None))
+        visible_tasks_limit: int = manager.config_manager.global_settings_data.ui_options.downloading_item_limit
+        horizontal_columns = (
+            *progress_colums,
+            "[progress.percentage]{task.percentage:>6.2f}%",
+            "━",
+            DownloadColumn(),
+            "━",
+            TransferSpeedColumn(),
+            "━",
+            TimeRemainingColumn(),
+        )
+        vertical_columns = (*progress_colums, DownloadColumn(), "━", TransferSpeedColumn())
+        use_columns = horizontal_columns
+        if manager.parsed_args.cli_only_args.portrait:
+            use_columns = vertical_columns
+        self._progress = Progress(*use_columns)
+        super().__init__("Downloads", visible_tasks_limit)
 
-        self.progress = Progress(SpinnerColumn(),
-                                "[progress.description]{task.description}",
-                                BarColumn(bar_width=None),
-                                "[progress.percentage]{task.percentage:>6.2f}%",
-                                "━",
-                                DownloadColumn(),
-                                "━",
-                                TransferSpeedColumn(),
-                                "━",
-                                TimeRemainingColumn())
-        self.overflow = Progress("[progress.description]{task.description}")
-        self.queue = Progress("[progress.description]{task.description}")
-        self.progress_group = Group(self.progress, self.overflow, self.queue)
-
-        self.color = "plum3"
-        self.type_str = "Files"
-        self.progress_str = "[{color}]{description}"
-        self.overflow_str = "[{color}]... And {number} Other {type_str}"
-        self.queue_str = "[{color}]... And {number} {type_str} In Download Queue"
-        self.overflow_task_id = self.overflow.add_task(
-            self.overflow_str.format(color=self.color, number=0, type_str=self.type_str), visible=False)
-        self.queue_task_id = self.queue.add_task(
-            self.queue_str.format(color=self.color, number=0, type_str=self.type_str), visible=False)
-
-        self.visible_tasks: List[TaskID] = []
-        self.invisible_tasks: List[TaskID] = []
-        self.completed_tasks: List[TaskID] = []
-        self.uninitiated_tasks: List[TaskID] = []
-        self.tasks_visibility_limit = visible_tasks_limit
-
-    async def get_progress(self) -> Panel:
-        """Returns the progress bar"""
-        return Panel(self.progress_group, title="Downloads", border_style="green", padding=(1, 1))
-
-    async def get_queue_length(self) -> int:
-        """Returns the number of tasks in the downloader queue"""
+    def get_queue_length(self) -> int:
+        """Returns the number of tasks in the downloader queue."""
         total = 0
-
-        for scraper in self.manager.scrape_mapper.existing_crawlers.values():
-            total += scraper.downloader.waiting_items
+        unique_crawler_ids = set()
+        for crawler in self.manager.scrape_mapper.existing_crawlers.values():
+            crawler_id = id(crawler)  # Only count each instance of the crawler once
+            if crawler_id in unique_crawler_ids:
+                continue
+            unique_crawler_ids.add(crawler_id)
+            total += getattr(crawler.downloader, "waiting_items", 0)
 
         return total
 
-    async def redraw(self, passed=False) -> None:
-        """Redraws the progress bar"""
-        while len(self.visible_tasks) > self.tasks_visibility_limit:
-            task_id = self.visible_tasks.pop(0)
-            self.invisible_tasks.append(task_id)
-            self.progress.update(task_id, visible=False)
-        while len(self.invisible_tasks) > 0 and len(self.visible_tasks) < self.tasks_visibility_limit:
-            task_id = self.invisible_tasks.pop(0)
-            self.visible_tasks.append(task_id)
-            self.progress.update(task_id, visible=True)
+    def add_task(self, *, domain: str, filename: str, expected_size: int | None = None) -> TaskID:  # type: ignore[reportIncompatibleMethodOverride]
+        """Adds a new task to the progress bar."""
+        filename = filename.split("/")[-1].encode("ascii", "ignore").decode().strip()
+        description = escape(adjust_title(filename, length=40))
+        if not self.manager.progress_manager.portrait:
+            description = f"({domain.upper()}) {description}"
+        return super().add_task(description, expected_size)
 
-        if len(self.invisible_tasks) > 0:
-            self.overflow.update(self.overflow_task_id, description=self.overflow_str.format(color=self.color,
-                                                                                            number=len(
-                                                                                                self.invisible_tasks),
-                                                                                            type_str=self.type_str),
-                                visible=True)
-        else:
-            self.overflow.update(self.overflow_task_id, visible=False)
+    def advance_file(self, task_id: TaskID, amount: int) -> None:
+        """Advances the progress of the given task by the given amount."""
+        self.manager.storage_manager.total_data_written += amount
+        self._progress.advance(task_id, amount)
 
-        queue_length = await self.get_queue_length()
-        if queue_length > 0:
-            self.queue.update(self.queue_task_id,
-                            description=self.queue_str.format(color=self.color, number=queue_length,
-                                                                type_str=self.type_str), visible=True)
-        else:
-            self.queue.update(self.queue_task_id, visible=False)
+    def get_speed(self, task_id: TaskID) -> float:
+        if task_id not in self._tasks:
+            msg = "Task ID not found"
+            raise ValueError(msg)
 
-        if not passed:
-            await self.manager.progress_manager.scraping_progress.redraw(True)
-
-    async def add_task(self, file: str, expected_size: Optional[int]) -> TaskID:
-        """Adds a new task to the progress bar"""
-        description = file.split('/')[-1]
-        description = description.encode("ascii", "ignore").decode().strip()
-        description = await adjust_title(description)
-
-        if len(self.visible_tasks) >= self.tasks_visibility_limit:
-            task_id = self.progress.add_task(self.progress_str.format(color=self.color, description=description),
-                                            total=expected_size, visible=False)
-            self.invisible_tasks.append(task_id)
-        else:
-            task_id = self.progress.add_task(self.progress_str.format(color=self.color, description=description),
-                                            total=expected_size)
-            self.visible_tasks.append(task_id)
-        await self.redraw()
-        return task_id
-
-    async def remove_file(self, task_id: TaskID) -> None:
-        """Removes the given task from the progress bar"""
-        if task_id in self.visible_tasks:
-            self.visible_tasks.remove(task_id)
-            self.progress.update(task_id, visible=False)
-        elif task_id in self.invisible_tasks:
-            self.invisible_tasks.remove(task_id)
-        elif task_id == self.overflow_task_id:
-            self.overflow.update(task_id, visible=False)
-        else:
-            raise ValueError("Task ID not found")
-        await self.redraw()
-
-    async def advance_file(self, task_id: TaskID, amount: int) -> None:
-        """Advances the progress of the given task by the given amount"""
-        if task_id in self.uninitiated_tasks:
-            self.uninitiated_tasks.remove(task_id)
-            self.invisible_tasks.append(task_id)
-            await self.redraw()
-        self.progress.advance(task_id, amount)
+        task = self._progress._tasks[task_id]
+        return task.finished_speed or task.speed or 0

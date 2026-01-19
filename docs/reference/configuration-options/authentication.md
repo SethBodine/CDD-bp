@@ -1,34 +1,47 @@
 ---
 description: These are all of the configuration options for Authentication.
+icon: user-lock
 ---
 
 # Authentication
+
+All the options in these list are optional. The default value for all of them is an empty `str`
+
+| Type  | Default |
+| ----- | ------- |
+| `str` | `""`    |
+
+<details>
+
+<summary>Coomer</summary>
+
+- `session`
+
+Value of the `session` cookie from the website. This will allow CDL to download from your favoruites by using `https://coomer.st/favorites` as an input URL.
+
+</details>
+
+<details>
+
+<summary>Kemono</summary>
+
+- `session`
+
+Value of the `session` cookie from the website. This will allow CDL to download from your favoruites by using `https://kemono.cr/favorites` as an input URL.
+
+</details>
 
 <details>
 
 <summary>Forums</summary>
 
-In order to scrape links/content from forums, you need to provide Cyberdrop-DL with your login details so it can access the website. This section also includes cookies for the support forums.
+{% hint style="warning" %}
+Logging to forums with `Authentication` was deprecated in v6.7.0
 
-If you use the cookie extractor to load the XF\_User\_Cookies into the program, you don't need to provide the program with credentials. If you ever log out of the forum in your browser though, you will need to use the cookie extractor again to get new cookies.
+You need to use cookie files.
 
-It is best to leave the authentication parameter for SimpCity blank, as they have made their forum public and have asked users scraping the website not to use logged in users.
-
-In order to set specific authentication values for a config instead of the global values, make an `authentication.yaml` file in the config folder.
-
-***
-
-* \<forum>\_xf\_user\_cookie
-
-This is the value for the cookie I was talking about above. If you want to only use credentials, you can leave this blank.
-
-* \<forum>\_username
-
-This is your username for the forum. Again, if you use the cookie, you don't need to provide this.
-
-* \<forum>\_password
-
-This is your password for the forum. Again, if you use the cookie, you don't need to provide this.
+See: [How to extract cookies (DDoSGuard or login errors) #839](https://github.com/jbsparrow/CyberDropDownloader/discussions/839)
+{% endhint %}
 
 </details>
 
@@ -36,11 +49,9 @@ This is your password for the forum. Again, if you use the cookie, you don't nee
 
 <summary>GoFile</summary>
 
-If you decide to pay for GoFile Premium (faster downloads, etc) you can provide your API key to Cyberdrop-DL in order for the program to use it.
+If you decide to pay for GoFile Premium (faster downloads, etc.) you can provide your API key to Cyberdrop-DL in order for the program to use it.
 
-***
-
-* gofile\_api\_key
+- `api_key`
 
 You can get your API key here: [https://gofile.io/myProfile](https://gofile.io/myProfile)
 
@@ -48,49 +59,15 @@ You can get your API key here: [https://gofile.io/myProfile](https://gofile.io/m
 
 <details>
 
-<summary>Imgur</summary>
-
-In order to scrape images from Imgur, you'll need to create a client on Imgurs website.
-
-[https://api.imgur.com/oauth2/addclient](https://api.imgur.com/oauth2/addclient)
-
-Some examples of what to put in for what it asks for:
-
-* Application Name: Cyberdrop-DL
-* OAuth2 without a callback URL
-* Website: \<really doesn't matter>
-* Email: Your email
-* Description: Cyberdrop-DL client
-
-***
-
-* imgur\_client\_id
-
-After generating the client above, you will need to give Cyberdrop-DL the client ID.
-
-</details>
-
-<details>
-
 <summary>JDownloader</summary>
 
-Under JDownloader 2 settings -> MyJDownloader
+Under JDownloader 2 settings -> MyJDownloader:
 
-You will set an email, password, and device name (then connect).
+- `username`
 
-***
+- `password`
 
-* jdownloader\_username
-
-Provide Cyberdrop-DL the email from above
-
-* jdownloader\_password
-
-Provide Cyberdrop-DL the password from above
-
-* jdownloader\_device
-
-Provide Cyberdrop-DL the device name from above
+- `device`
 
 </details>
 
@@ -98,13 +75,23 @@ Provide Cyberdrop-DL the device name from above
 
 <summary>PixelDrain</summary>
 
-If you decide to pay for PixelDrain premium (faster downloads, etc) you can provide your API key to Cyberdrop-Dl in order for the program to use it.
+If you decide to pay for PixelDrain premium (faster downloads, etc.) you can provide your API key to Cyberdrop-DL in order for the program to use it.
 
-***
+- `api_key`
 
-* pixeldrain\_api\_key
+You can get your API key here: [https://pixeldrain.com/user/api_keys](https://pixeldrain.com/user/api_keys)
 
-You can get your API key here: [https://pixeldrain.com/user/api\_keys](https://pixeldrain.com/user/api\_keys)
+</details>
+
+<details>
+
+<summary>Real-Debrid</summary>
+
+In order to download files from sites supported by real-debrid, you'll need to get the API token from your account.
+
+- `api_key`
+
+You can get your API key here (you must be logged in): [https://real-debrid.com/apitoken](https://real-debrid.com/apitoken)
 
 </details>
 
@@ -112,22 +99,33 @@ You can get your API key here: [https://pixeldrain.com/user/api\_keys](https://p
 
 <summary>Reddit</summary>
 
-In order to scrape files from Reddit, you'll need to create an app on reddits website (it's free).
+In order to scrape files from Reddit, you'll need to create an app on reddit's website (it's free): [https://www.reddit.com/prefs/apps](https://www.reddit.com/prefs/apps)
 
-[https://www.reddit.com/prefs/apps](https://www.reddit.com/prefs/apps)
+Select `script` as the app type. Any name can be used. For the redirect URI you can use any website, even a fake one like `http://your_username.cyberdrop-dl`. Click `create app` to get your credentials.
 
-Some examples of what to put in for what it asks for:
+![reddit_personal_script_setup_1](../../assets/reddit_personal_script_setup_1.png)
+![reddit_personal_script_setup_2](../../assets/reddit_personal_script_setup_2.png)
 
-* name: Cyberdrop-DL
-* script
-*
-*
+After generating the app, you need to provide Cyberdrop-DL these values:
 
-***
+- `personal_use_script`
 
-* reddit\_personal\_use\_script
-* reddit\_secret
+- `secret`
 
-after generating the app, you will need to give Cyberdrop-DL these values.
+</details>
+
+<details>
+
+<summary>Mega.nz</summary>
+
+If you have premium or want to download files/folders only shared with you, provide CDL these values:
+
+- `email`
+
+- `password`
+
+{% hint style="warning" %}
+Accounts with 2 factor authentication (2FA) are NOT supported
+{% endhint %}
 
 </details>
