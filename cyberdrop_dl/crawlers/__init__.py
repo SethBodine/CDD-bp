@@ -8,6 +8,7 @@ from .anontransfer import AnonTransferCrawler
 from .anysex import AnySexCrawler
 from .archivebate import ArchiveBateCrawler
 from .ashemaletube import AShemaleTubeCrawler
+from .bandcamp import BandcampCrawler
 from .beeg import BeegComCrawler
 from .box_dot_com import BoxDotComCrawler
 from .bunkrr import BunkrrCrawler
@@ -107,7 +108,6 @@ from .rule34xxx import Rule34XXXCrawler
 from .rule34xyz import Rule34XYZCrawler
 from .rumble import RumbleCrawler
 from .safe_soul import SafeSoulCrawler
-from .saint import SaintCrawler
 from .scrolller import ScrolllerCrawler
 from .send_now import SendNowCrawler
 from .sendvid import SendVidCrawler
