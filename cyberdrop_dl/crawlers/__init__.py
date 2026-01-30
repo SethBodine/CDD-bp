@@ -16,6 +16,7 @@ from .bunkrr_albums_io import BunkrAlbumsIOCrawler
 from .buzzheavier import BuzzHeavierCrawler
 from .camwhores_dot_tv import CamwhoresTVCrawler
 from .catbox import CatboxCrawler
+from .cloud_mail_ru import CloudMailRuCrawler
 from .cloudflare_stream import CloudflareStreamCrawler
 from .coomer import CoomerCrawler
 from .crawler import Crawler
@@ -127,6 +128,7 @@ from .transflix import TransflixCrawler
 from .tubepornclassic import TubePornClassicCrawler
 from .turbovid import TurboVidCrawler
 from .twitch import TwitchCrawler
+from .twitter import TwitterCrawler
 from .twitter_images import TwimgCrawler
 from .twpornstars import TwPornstarsCrawler
 from .txxx import TXXXCrawler
@@ -136,6 +138,7 @@ from .vipr_dot_im import ViprImCrawler
 from .vjav import VJavCrawler
 from .voe_sx import VoeSxCrawler
 from .voyeurhit import VoyeurHitCrawler
+from .vsco import VSCOCrawler
 from .vxxx import VXXXCrawler
 from .wetransfer import WeTransferCrawler
 from .wordpress import WP_CRAWLERS, WordPressHTMLCrawler, WordPressMediaCrawler
@@ -156,7 +159,7 @@ ALL_CRAWLERS: set[type[Crawler]] = {
     crawler for name, crawler in globals().items() if name.endswith("Crawler") and crawler is not Crawler
 }
 ALL_CRAWLERS.update(WP_CRAWLERS, GENERIC_CRAWLERS, FORUM_CRAWLERS)
-DEBUG_CRAWLERS = {SimpCityCrawler}
+DEBUG_CRAWLERS = {SimpCityCrawler, TwitterCrawler}
 if env.ENABLE_DEBUG_CRAWLERS == "d396ab8c85fcb1fecd22c8d9b58acf944a44e6d35014e9dd39e42c9a64091eda":
     CRAWLERS = ALL_CRAWLERS
 else:
