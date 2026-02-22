@@ -1,34 +1,41 @@
-import os  # Import os for file path manipulation
+from __future__ import annotations
 
-import aiofiles
+import asyncio
+import hashlib
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Literal
+
+import xxhash
 
 from cyberdrop_dl.clients.hash_client import HashClient
 
+if TYPE_CHECKING:
+    from cyberdrop_dl.managers.manager import Manager
+
+_HASHERS: Final = {
+    "md5": hashlib.md5,
+    "xxh128": xxhash.xxh128,
+    "sha256": hashlib.sha256,
+}
+_CHUNK_SIZE: Final = 1024 * 1024  # 1MB
+
 
 class HashManager:
-    def __init__(self, manager):
-        self.hasher = self._get_hasher()  # Initialize hasher in constructor
-        self.hash_client = HashClient(manager)  # Initialize hash client in constructor
+    def __init__(self, manager: Manager) -> None:
+        self._cwd: Path = Path.cwd()
+        self.hash_client: HashClient = HashClient(manager)
 
-    async def startup(self):
-        await self.hash_client.startup()
+    async def hash_file(self, filename: Path | str, hash_type: Literal["xxh128", "md5", "sha256"]) -> str:
+        file_path = self._cwd / filename
+        return await asyncio.to_thread(_compute_hash, file_path, hash_type)
 
-    def _get_hasher(self):
-        """Tries to import xxhash, otherwise falls back to hashlib.md5"""
-        try:
-            import xxhash  # type: ignore
-            return xxhash.xxh128
-        except ImportError:
-            import hashlib
-            return hashlib.md5
 
-    async def hash_file(self, filename):
-        file_path = os.path.join(os.getcwd(), filename)  # Construct full file path
-        async with aiofiles.open(file_path, "rb") as fp:
-            CHUNK_SIZE = 1024 * 1024  # 1 mb
-            filedata = await fp.read(CHUNK_SIZE)
-            hasher = self.hasher()  # Use the initialized hasher
-            while filedata:
-                hasher.update(filedata)
-                filedata = await fp.read(CHUNK_SIZE)
-            return hasher.hexdigest()
+def _compute_hash(file: Path, algorithm: Literal["xxh128", "md5", "sha256"]) -> str:
+    with file.open("rb") as file_io:
+        hash = _HASHERS[algorithm]()
+        buffer = bytearray(_CHUNK_SIZE)  # Reusable buffer to reduce allocations
+        mem_view = memoryview(buffer)
+        while size := file_io.readinto(buffer):
+            hash.update(mem_view[:size])
+
+    return hash.hexdigest()
