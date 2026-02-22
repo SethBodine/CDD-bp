@@ -1,71 +1,89 @@
-import traceback
-from contextlib import asynccontextmanager
+from __future__ import annotations
+
+import asyncio
+from contextlib import contextmanager
+from functools import partialmethod
+from typing import TYPE_CHECKING
 
 from rich.live import Live
 
-from cyberdrop_dl.managers.console_manager import console
-from cyberdrop_dl.utils.utilities import log
+from cyberdrop_dl import constants
+from cyberdrop_dl.utils.args import is_terminal_in_portrait
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from rich.console import RenderableType
+
+    from cyberdrop_dl.managers.manager import Manager
 
 
 class LiveManager:
-    def __init__(self, manager):
+    def __init__(self, manager: Manager) -> None:
         self.manager = manager
-        self.live = Live(auto_refresh=True,
-                        refresh_per_second=self.manager.config_manager.global_settings_data['UI_Options'][
-                            'refresh_rate'], console=console)
+        self.ui_setting = self.manager.parsed_args.cli_only_args.ui
+        self.fullscreen = f = self.manager.parsed_args.cli_only_args.fullscreen_ui
+        self.refresh_rate = rate = self.manager.config_manager.global_settings_data.ui_options.refresh_rate
+        self.live = Live(refresh_per_second=rate, transient=True, screen=f, auto_refresh=True)
+        self.current_layout: str = ""
 
-    @asynccontextmanager
-    async def get_main_live(self, stop=False):
+    @contextmanager
+    def get_live(self, name: str, stop: bool = False) -> Generator[Live | None]:
+        layout = self.get_layout(name)
+        with self.live_context_manager(layout, stop=stop) as live:
+            yield live
+
+    get_sort_live = partialmethod(get_live, name="sort_layout")
+    get_main_live = partialmethod(get_live, name="main_layout")
+    get_hash_live = partialmethod(get_live, name="hash_layout")
+    get_remove_file_via_hash_live = partialmethod(get_live, name="hash_remove_layout")
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+    def get_layout(self, name: str) -> RenderableType | None:
+        if name == "main_layout":
+            name = f"{self.ui_setting.value}_layout"
+            self.current_layout = name
+        return getattr(self.manager.progress_manager, name, None)
+
+    async def watch_orientation(self, stop_event: asyncio.Event) -> None:
+        """Watches for screen orientation changes and updates the live display accordingly."""
+        while not stop_event.is_set():
+            new_layout = "vertical_layout" if is_terminal_in_portrait() else "horizontal_layout"
+            if new_layout != self.current_layout:
+                self.current_layout = new_layout
+                layout = self.get_layout(new_layout)
+                self.live.update(layout, refresh=True)  # type: ignore[reportArgumentType]
+            await asyncio.sleep(0.5)
+
+    @contextmanager
+    def live_context_manager(self, layout: RenderableType | None, stop: bool = False) -> Generator[Live | None]:
+        stop_event = asyncio.Event()
+        orientation_task = None
+
         try:
-            if self.manager.args_manager.no_ui:
-                yield
-            else:
+            with self.replace_console():
                 self.live.start()
-                self.live.update(self.manager.progress_manager.layout, refresh=True)
+                if layout:
+                    self.live.update(layout, refresh=True)
+                    if self.current_layout in ("vertical_layout", "horizontal_layout"):
+                        orientation_task = asyncio.create_task(self.watch_orientation(stop_event))
                 yield self.live
+        finally:
+            stop_event.set()
+            if orientation_task:
+                orientation_task.cancel()
             if stop:
+                self.live.update("")
                 self.live.stop()
-        except Exception as e:
-            await log(f"Issue with rich live {e}", level=10, exc_info=True)
 
-    @asynccontextmanager
-    async def get_remove_file_via_hash_live(self, stop=False):
-        try:
-            if self.manager.args_manager.no_ui:
-                yield
-            else:
-                self.live.start()
-                self.live.update(self.manager.progress_manager.hash_remove_layout, refresh=True)
-                yield
-            if stop:
-                self.live.stop()
-        except Exception as e:
-            await log(f"Issue with rich live {e}", level=10, exc_info=True)
+    @contextmanager
+    def replace_console(self) -> Generator[None]:
+        """Disable the default console, replacing it with the internal live's console"""
 
-    @asynccontextmanager
-    async def get_hash_live(self, stop=False):
+        default_console = constants.console_handler.console
         try:
-            if self.manager.args_manager.no_ui:
-                yield
-            else:
-                self.live.start()
-                self.live.update(self.manager.progress_manager.hash_layout, refresh=True)
-                yield
-            if stop:
-                self.live.stop()
-        except Exception as e:
-            await log(f"Issue with rich live {e}", level=10, exc_info=True)
-
-    @asynccontextmanager
-    async def get_sort_live(self, stop=False):
-        try:
-            if self.manager.args_manager.no_ui:
-                yield
-            else:
-                self.live.start()
-                self.live.update(self.manager.progress_manager.sort_layout, refresh=True)
-                yield
-            if stop:
-                self.live.stop()
-        except Exception as e:
-            await log(f"Issue with rich live {e}", level=10, exc_info=True)
+            constants.console_handler.console = self.live.console
+            yield
+        finally:
+            constants.console_handler.console = default_console

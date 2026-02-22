@@ -1,285 +1,183 @@
-import copy
+from __future__ import annotations
+
+import os
 import shutil
 from dataclasses import field
-from pathlib import Path
 from time import sleep
-from typing import Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-import yaml
-
+from cyberdrop_dl.config import AuthSettings, ConfigSettings, GlobalSettings
+from cyberdrop_dl.exceptions import InvalidYamlError
 from cyberdrop_dl.managers.log_manager import LogManager
-from cyberdrop_dl.utils.args.config_definitions import authentication_settings, settings, global_settings
-from cyberdrop_dl.clients.errors import InvalidYamlConfig
+from cyberdrop_dl.utils import yaml
+from cyberdrop_dl.utils.apprise import get_apprise_urls
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pydantic import BaseModel
+
     from cyberdrop_dl.managers.manager import Manager
-
-
-def _match_config_dicts(default: Dict, existing: Dict) -> Dict:
-    """Matches the keys of two dicts and returns the default dict with the values of the existing dict"""
-    for group in default:
-        for key in default[group]:
-            if group in existing and key in existing[group]:
-                default[group][key] = existing[group][key]
-    return default
-
-
-def _save_yaml(file: Path, data: Dict) -> None:
-    """Saves a dict to a yaml file"""
-    file.parent.mkdir(parents=True, exist_ok=True)
-    with open(file, 'w') as yaml_file:
-        yaml.dump(data, yaml_file)
-
-
-def _load_yaml(file: Path) -> Dict:
-    """Loads a yaml file and returns it as a dict"""
-    try:
-        with open(file, 'r') as yaml_file:
-            yaml_values = yaml.load(yaml_file.read(), Loader=yaml.FullLoader)
-            return yaml_values if yaml_values else {}
-    except yaml.constructor.ConstructorError as e:
-        raise InvalidYamlConfig(file, e)
-
-
-def get_keys(dl, keys=None) -> set:
-    keys = keys or []
-    if isinstance(dl, dict):
-        keys += dl.keys()
-        _ = [get_keys(x, keys) for x in dl.values()]
-    elif isinstance(dl, list):
-        _ = [get_keys(x, keys) for x in dl]
-    return set(keys)
+    from cyberdrop_dl.utils.apprise import AppriseURL
 
 
 class ConfigManager:
-    def __init__(self, manager: 'Manager'):
+    def __init__(self, manager: Manager) -> None:
         self.manager = manager
-        self.loaded_config: str = field(init=False)
+        self.loaded_config: str = ""
 
         self.authentication_settings: Path = field(init=False)
         self.settings: Path = field(init=False)
         self.global_settings: Path = field(init=False)
+        self.deep_scrape: bool = False
+        self.apprise_urls: list[AppriseURL] = []
 
-        self.authentication_data: Dict = field(init=False)
-        self.settings_data: Dict = field(init=False)
-        self.global_settings_data: Dict = field(init=False)
+        self.authentication_data: AuthSettings = field(init=False)
+        self.settings_data: ConfigSettings = field(init=False)
+        self.global_settings_data: GlobalSettings = field(init=False)
+        self.pydantic_config: str | None = None
 
     def startup(self) -> None:
-        """Pre-startup process for the config manager"""
-        if not isinstance(self.loaded_config, str):
-            self.loaded_config = self.manager.cache_manager.get("default_config")
-            if not self.loaded_config:
-                self.loaded_config = "Default"
-            if self.manager.args_manager.load_config_from_args:
-                self.loaded_config = self.manager.args_manager.load_config_name
+        """Startup process for the config manager."""
+        self.loaded_config = self.manager.parsed_args.cli_only_args.config or self.get_loaded_config()
+        self.settings = self.manager.path_manager.config_folder / self.loaded_config / "settings.yaml"
+        self.global_settings = self.manager.path_manager.config_folder / "global_settings.yaml"
+        self.authentication_settings = self.manager.path_manager.config_folder / "authentication.yaml"
+        auth_override = self.manager.path_manager.config_folder / self.loaded_config / "authentication.yaml"
 
-        self.authentication_settings = self.manager.path_manager.config_dir / "authentication.yaml"
-        self.global_settings = self.manager.path_manager.config_dir / "global_settings.yaml"
-        self.settings = self.manager.path_manager.config_dir / self.loaded_config / "settings.yaml"
-        if (self.manager.path_manager.config_dir / self.loaded_config / "authentication.yaml").is_file():
-            self.authentication_settings = self.manager.path_manager.config_dir / self.loaded_config / "authentication.yaml"
+        if auth_override.is_file():
+            self.authentication_settings = auth_override
 
         self.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.pydantic_config = self.manager.cache_manager.get("pydantic_config")
         self.load_configs()
 
+    def get_loaded_config(self):
+        return self.loaded_config or self.get_default_config()
+
+    def get_default_config(self) -> str:
+        return self.manager.cache_manager.get("default_config") or "Default"
+
     def load_configs(self) -> None:
-        """Loads all the configs"""
+        """Loads all the configs."""
+        self._load_authentication_config()
+        self._load_global_settings_config()
+        self._load_settings_config()
+        self.apprise_file = self.manager.path_manager.config_folder / self.loaded_config / "apprise.txt"
+        self.apprise_urls = get_apprise_urls(file=self.apprise_file)
+        self._set_apprise_fixed()
+        self._set_pydantic_config()
+
+    @staticmethod
+    def get_model_fields(model: BaseModel, *, exclude_unset: bool = True) -> set[str]:
+        fields = set()
+        default_dict: dict = model.model_dump(exclude_unset=exclude_unset)
+        for submodel_name, submodel in default_dict.items():
+            for field_name in submodel:
+                fields.add(f"{submodel_name}.{field_name}")
+        return fields
+
+    def _load_authentication_config(self) -> None:
+        """Verifies the authentication config file and creates it if it doesn't exist."""
+        needs_update = is_in_file("socialmediagirls_username:", self.authentication_settings)
+        posible_fields = self.get_model_fields(AuthSettings(), exclude_unset=False)
         if self.authentication_settings.is_file():
-            self._verify_authentication_config()
-        else:
-            self.authentication_data = copy.deepcopy(authentication_settings)
-            _save_yaml(self.authentication_settings, self.authentication_data)
+            self.authentication_data = AuthSettings.model_validate(yaml.load(self.authentication_settings))
+            set_fields = self.get_model_fields(self.authentication_data)
+            if posible_fields == set_fields and not needs_update and self.pydantic_config:
+                return
 
-        if self.global_settings.is_file():
-            self._verify_global_settings_config()
         else:
-            self.global_settings_data = copy.deepcopy(global_settings)
-            _save_yaml(self.global_settings, self.global_settings_data)
+            self.authentication_data = AuthSettings()
 
-        if self.manager.args_manager.config_file:
-            self.settings = Path(self.manager.args_manager.config_file)
+        yaml.save(self.authentication_settings, self.authentication_data)
+
+    def _load_settings_config(self) -> None:
+        """Verifies the settings config file and creates it if it doesn't exist."""
+        needs_update = is_in_file("download_error_urls_filename:", self.settings)
+        posible_fields = self.get_model_fields(ConfigSettings(), exclude_unset=False)
+        if self.manager.parsed_args.cli_only_args.config_file:
+            self.settings = self.manager.parsed_args.cli_only_args.config_file
             self.loaded_config = "CLI-Arg Specified"
 
         if self.settings.is_file():
-            self._verify_settings_config()
+            self.settings_data = ConfigSettings.model_validate(yaml.load(self.settings))
+            set_fields = self.get_model_fields(self.settings_data)
+            self.deep_scrape = self.settings_data.runtime_options.deep_scrape
+            self.settings_data.runtime_options.deep_scrape = False
+            if posible_fields == set_fields and not needs_update and self.pydantic_config:
+                return
         else:
-            from cyberdrop_dl.managers.path_manager import APP_STORAGE, DOWNLOAD_STORAGE
-            self.settings_data = copy.deepcopy(settings)
-            self.settings_data['Files']['input_file'] = APP_STORAGE / "Configs" / self.loaded_config / "URLs.txt"
-            self.settings_data['Files']['download_folder'] = DOWNLOAD_STORAGE / "Cyberdrop-DL Downloads"
-            self.settings_data['Logs']['log_folder'] = APP_STORAGE / "Configs" / self.loaded_config / "Logs"
-            self.settings_data['Logs']['webhook_url'] = ""
-            self.settings_data['Sorting']['sort_folder'] = DOWNLOAD_STORAGE / "Cyberdrop-DL Sorted Downloads"
-            self.settings_data['Sorting']['scan_folder'] = None
-            self.write_updated_settings_config()
+            self.settings_data = ConfigSettings()
+            self.settings_data.files.input_file = (
+                self.manager.path_manager.appdata / "Configs" / self.loaded_config / "URLs.txt"
+            )
+            downloads = self.manager.path_manager.cwd / "Downloads"
+            self.settings_data.sorting.sort_folder = downloads / "Cyberdrop-DL Sorted Downloads"
+            self.settings_data.files.download_folder = downloads / "Cyberdrop-DL Downloads"
+            self.settings_data.logs.log_folder = (
+                self.manager.path_manager.appdata / "Configs" / self.loaded_config / "Logs"
+            )
 
-    def _verify_authentication_config(self) -> None:
-        """Verifies the authentication config file and creates it if it doesn't exist"""
-        default_auth_data = copy.deepcopy(authentication_settings)
-        existing_auth_data = _load_yaml(self.authentication_settings)
+        yaml.save(self.settings, self.settings_data)
 
-        if get_keys(default_auth_data) == get_keys(existing_auth_data):
-            self.authentication_data = existing_auth_data
-            return
+    def _load_global_settings_config(self) -> None:
+        """Verifies the global settings config file and creates it if it doesn't exist."""
+        needs_update = is_in_file("Dupe_Cleanup_Options:", self.global_settings)
+        posible_fields = self.get_model_fields(GlobalSettings(), exclude_unset=False)
+        if self.global_settings.is_file():
+            self.global_settings_data = GlobalSettings.model_validate(yaml.load(self.global_settings))
+            set_fields = self.get_model_fields(self.global_settings_data)
+            if posible_fields == set_fields and not needs_update and self.pydantic_config:
+                return
+        else:
+            self.global_settings_data = GlobalSettings()
 
-        self.authentication_data = _match_config_dicts(default_auth_data, existing_auth_data)
-        _save_yaml(self.authentication_settings, self.authentication_data)
-
-    def _verify_settings_config(self) -> None:
-        """Verifies the settings config file and creates it if it doesn't exist"""
-        default_settings_data = copy.deepcopy(settings)
-        existing_settings_data = _load_yaml(self.settings)
-        self.settings_data = _match_config_dicts(default_settings_data, existing_settings_data)
-        self.settings_data['Files']['input_file'] = Path(self.settings_data['Files']['input_file'])
-        self.settings_data['Files']['download_folder'] = Path(self.settings_data['Files']['download_folder'])
-        self.settings_data['Logs']['log_folder'] = Path(self.settings_data['Logs']['log_folder'])
-        self.settings_data['Logs']['webhook_url'] = str(self.settings_data['Logs']['webhook_url'])
-        self.settings_data['Sorting']['sort_folder'] = Path(self.settings_data['Sorting']['sort_folder'])
-        self.settings_data['Sorting']['scan_folder'] = Path(self.settings_data['Sorting']['scan_folder']) if \
-        self.settings_data['Sorting']['scan_folder'] else None
-
-        # change to ints
-        self.settings_data['File_Size_Limits']['maximum_image_size'] = int(
-            self.settings_data['File_Size_Limits']['maximum_image_size'])
-        self.settings_data['File_Size_Limits']['maximum_video_size'] = int(
-            self.settings_data['File_Size_Limits']['maximum_video_size'])
-        self.settings_data['File_Size_Limits']['maximum_other_size'] = int(
-            self.settings_data['File_Size_Limits']['maximum_other_size'])
-        self.settings_data['File_Size_Limits']['minimum_image_size'] = int(
-            self.settings_data['File_Size_Limits']['minimum_image_size'])
-        self.settings_data['File_Size_Limits']['minimum_video_size'] = int(
-            self.settings_data['File_Size_Limits']['minimum_video_size'])
-        self.settings_data['File_Size_Limits']['minimum_other_size'] = int(
-            self.settings_data['File_Size_Limits']['minimum_other_size'])
-
-        self.settings_data['Runtime_Options']['log_level'] = int(self.settings_data['Runtime_Options']['log_level'])
-
-        self.settings_data['Runtime_Options']['console_log_level'] = int(
-            self.settings_data['Runtime_Options']['console_log_level'])
-
-        self.global_settings_data['General']['max_file_name_length'] = int(
-            self.global_settings_data['General']['max_file_name_length'])
-        self.global_settings_data['General']['max_folder_name_length'] = int(
-            self.global_settings_data['General']['max_folder_name_length'])
-
-        self.global_settings_data['Rate_Limiting_Options']['connection_timeout'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['connection_timeout'])
-        self.global_settings_data['Rate_Limiting_Options']['download_attempts'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['download_attempts'])
-        self.global_settings_data['Rate_Limiting_Options']['download_delay'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['download_delay'])
-        self.global_settings_data['Rate_Limiting_Options']['max_simultaneous_downloads'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['max_simultaneous_downloads'])
-        self.global_settings_data['Rate_Limiting_Options']['max_simultaneous_downloads_per_domain'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['max_simultaneous_downloads_per_domain'])
-        self.global_settings_data['Rate_Limiting_Options']['rate_limit'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['rate_limit'])
-
-        self.global_settings_data['Rate_Limiting_Options']['download_speed_limit'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['download_speed_limit'])
-        self.global_settings_data['Rate_Limiting_Options']['read_timeout'] = int(
-            self.global_settings_data['Rate_Limiting_Options']['read_timeout'])
-
-        self.global_settings_data['Dupe_Cleanup_Options']['delete_after_download'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['delete_after_download']
-        self.global_settings_data['Dupe_Cleanup_Options']['hash_while_downloading'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['hash_while_downloading']
-        self.global_settings_data['Dupe_Cleanup_Options']['dedupe_already_downloaded'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['dedupe_already_downloaded']
-        self.global_settings_data['Dupe_Cleanup_Options']['keep_prev_download'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['keep_prev_download']
-        self.global_settings_data['Dupe_Cleanup_Options']['keep_new_download'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['keep_new_download']
-        self.global_settings_data['Dupe_Cleanup_Options']['delete_off_disk'] = \
-            self.global_settings_data['Dupe_Cleanup_Options']['delete_off_disk']
-
-        self.global_settings_data['UI_Options']['refresh_rate'] = int(
-            self.global_settings_data['UI_Options']['refresh_rate'])
-        self.global_settings_data['UI_Options']['scraping_item_limit'] = int(
-            self.global_settings_data['UI_Options']['scraping_item_limit'])
-        self.global_settings_data['UI_Options']['downloading_item_limit'] = int(
-            self.global_settings_data['UI_Options']['downloading_item_limit'])
-
-        if get_keys(default_settings_data) == get_keys(existing_settings_data):
-            return
-
-        save_data = copy.deepcopy(self.settings_data)
-        save_data['Files']['input_file'] = str(save_data['Files']['input_file'])
-        save_data['Files']['download_folder'] = str(save_data['Files']['download_folder'])
-        save_data['Logs']['log_folder'] = str(save_data['Logs']['log_folder'])
-        save_data['Logs']['webhook_url'] = str(save_data['Logs']['webhook_url'])
-        save_data['Sorting']['sort_folder'] = str(save_data['Sorting']['sort_folder'])
-        save_data['Sorting']['scan_folder'] = str(save_data['Sorting']['scan_folder'])
-        _save_yaml(self.settings, save_data)
-
-    def _verify_global_settings_config(self) -> None:
-        """Verifies the global settings config file and creates it if it doesn't exist"""
-        default_global_settings_data = copy.deepcopy(global_settings)
-        existing_global_settings_data = _load_yaml(self.global_settings)
-
-        if get_keys(default_global_settings_data) == get_keys(existing_global_settings_data):
-            self.global_settings_data = existing_global_settings_data
-            return
-
-        self.global_settings_data = _match_config_dicts(default_global_settings_data, existing_global_settings_data)
-        _save_yaml(self.global_settings, self.global_settings_data)
+        yaml.save(self.global_settings, self.global_settings_data)
 
     """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
 
-    def create_new_config(self, new_settings: Path, settings_data: Dict) -> None:
-        """Creates a new settings config file"""
-        settings_data['Files']['input_file'] = str(settings_data['Files']['input_file'])
-        settings_data['Files']['download_folder'] = str(settings_data['Files']['download_folder'])
-        settings_data['Logs']['log_folder'] = str(settings_data['Logs']['log_folder'])
-        settings_data['Logs']['webhook_url'] = str(settings_data['Logs']['webhook_url'])
-        settings_data['Sorting']['sort_folder'] = str(settings_data['Sorting']['sort_folder'])
-        settings_data['Sorting']['scan_folder'] = str(settings_data['Sorting']['scan_folder']) if \
-        settings_data['Sorting']['scan_folder'] else None
-        _save_yaml(new_settings, settings_data)
+    def save_as_new_config(self, new_settings: Path, settings_data: ConfigSettings) -> None:
+        """Creates a new settings config file."""
+        yaml.save(new_settings, settings_data)
 
     def write_updated_authentication_config(self) -> None:
-        """Write updated authentication data"""
-        _save_yaml(self.authentication_settings, self.authentication_data)
+        """Write updated authentication data."""
+        yaml.save(self.authentication_settings, self.authentication_data)
 
     def write_updated_settings_config(self) -> None:
-        """Write updated settings data"""
-        settings_data = copy.deepcopy(self.settings_data)
-        settings_data['Files']['input_file'] = str(settings_data['Files']['input_file'])
-        settings_data['Files']['download_folder'] = str(settings_data['Files']['download_folder'])
-        settings_data['Logs']['log_folder'] = str(settings_data['Logs']['log_folder'])
-        settings_data['Logs']['webhook_url'] = str(settings_data['Logs']['webhook_url'])
-        settings_data['Sorting']['sort_folder'] = str(settings_data['Sorting']['sort_folder'])
-        settings_data['Sorting']['scan_folder'] = str(settings_data['Sorting']['scan_folder'])
-
-        _save_yaml(self.settings, settings_data)
+        """Write updated settings data."""
+        yaml.save(self.settings, self.settings_data)
 
     def write_updated_global_settings_config(self) -> None:
-        """Write updated global settings data"""
-        _save_yaml(self.global_settings, self.global_settings_data)
+        """Write updated global settings data."""
+        yaml.save(self.global_settings, self.global_settings_data)
 
     """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
 
-    def get_configs(self) -> List:
-        """Returns a list of all the configs"""
-        return [config.name for config in self.manager.path_manager.config_dir.iterdir() if config.is_dir()]
+    def get_configs(self) -> list:
+        """Returns a list of all the configs."""
+        configs = [config.name for config in self.manager.path_manager.config_folder.iterdir() if config.is_dir()]
+        configs.sort()
+        return configs
 
     def change_default_config(self, config_name: str) -> None:
-        """Changes the default config"""
+        """Changes the default config."""
         self.manager.cache_manager.save("default_config", config_name)
 
     def delete_config(self, config_name: str) -> None:
-        """Deletes a config"""
+        """Deletes a config."""
         configs = self.get_configs()
         configs.remove(config_name)
 
         if self.manager.cache_manager.get("default_config") == config_name:
             self.manager.cache_manager.save("default_config", configs[0])
 
-        config = self.manager.path_manager.config_dir / config_name
+        config = self.manager.path_manager.config_folder / config_name
         shutil.rmtree(config)
 
     def change_config(self, config_name: str) -> None:
-        """Changes the config"""
+        """Changes the config."""
         self.loaded_config = config_name
         self.startup()
 
@@ -287,3 +185,32 @@ class ConfigManager:
         sleep(1)
         self.manager.log_manager = LogManager(self.manager)
         sleep(1)
+
+    def _set_apprise_fixed(self):
+        apprise_fixed = self.manager.cache_manager.get("apprise_fixed")
+        if apprise_fixed:
+            return
+        if os.name == "nt":
+            try:
+                import win32con  # noqa: F401
+            except ImportError:
+                pass
+            else:
+                with self.apprise_file.open("a", encoding="utf8") as f:
+                    f.write("windows://\n")
+        self.manager.cache_manager.save("apprise_fixed", True)
+
+    def _set_pydantic_config(self):
+        if self.pydantic_config:
+            return
+        self.manager.cache_manager.save("pydantic_config", True)
+        self.pydantic_config = True
+
+
+def is_in_file(search_value: str, file: Path) -> bool:
+    if not file.is_file():
+        return False
+    try:
+        return search_value.casefold() in file.read_text(encoding="utf8").casefold()
+    except Exception as e:
+        raise InvalidYamlError(file, e) from e

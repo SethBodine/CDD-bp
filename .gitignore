@@ -1,9 +1,15 @@
 # Project stuff
 /Test-Download-Dir/
 /Test-AppData-Dir/
-/AppData/
+/AppData*/
 /Downloads/
-cyberdrop_dl_debug.log
+/Old Files/
+*.log
+*.profiling
+*.csv
+.coverage
+.config.yaml
+/build
 
 # Python cache
 __pycache__
@@ -17,3 +23,8 @@ venv
 
 # Compiled package
 /dist/
+
+# MacOS system files
+**.DS_Store
+.aider*
+.env

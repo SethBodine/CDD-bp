@@ -1,94 +1,393 @@
 ---
+icon: rectangle-terminal
 description: Here's the available CLI Arguments
+layout:
+  title:
+    visible: true
+  description:
+    visible: true
+  tableOfContents:
+    visible: true
+  outline:
+    visible: false
+  pagination:
+    visible: true
 ---
 
 # CLI Arguments
 
 {% hint style="info" %}
-Anything input as a CLI argument will take priority over config values.
+CLI inputs always take priority over config values.
 {% endhint %}
 
-For items not explained below, you can find their counterparts in the Configuration options to see what they do, or use `cyberdrop-dl --help` in your command prompt to get a full print out.
+{% hint style="info" %}
+Use `-` instead of `_` to separate words in an config option name when using it as a CLI argument: Ex: `auto_dedupe` needs to be `auto-dedupe` when using it via the CLI
+{% endhint %}
 
-For items within Download Options, Ignore Options, Runtime Options, and Sorting Options, you can prefix the argument with `--no-` to negate the option. For example, `--no-exclude-videos` will include videos in the download.
+You can pass any of the **Config Settings** and **Global Settings** options as a cli argument for the program.
 
-```
---config <name>                    : Name of the config file to load.
---proxy                            : Proxy connection string
---flaresolverr                     : IP:PORT for flaresolverr
---no-ui                            : Disables the UI and progress monitor
---download                         : Skips the UI and goes straight to downloading
---download-all-configs             : Runs all configs sequentially
---retry-failed                     : Retries failed links that are in the download history
---retry-all                        : Retries all downloads that are in the download history
---retry-maintenance                : Retries maintenance links that are in the download history, and were marked as completed
+For items not explained below, you can find their counterparts in the configuration options to see what they do.
 
-// Files
---input-file                       : Manually specify the URLs.txt file to load (path)
---output-folder                    : Manually specify the download directory (path)
---config-file                      : Manually specify the config file to load (path)
---appdata-folder                   : Manually specify where you want to program to store it's AppData folder
---log-folder                       : Manually specify where you want the program to save log files
---main-log-filename
---last-forum-post-filename
---unsupported-urls-filename
---download-error-urls-filename
---scrape-error-urls-filename
+## CLI only arguments
 
-// Download Options
---block-download-sub-folders
---disable-download-attempt-limit
---disable-file-timestamps
---include-album-id-in-folder-name
---include-thread-id-in-folder-name
---remove-domains-from-folder-names
---remove-generated-id-from-filenames
---scrape-single-forum-post
---separate-posts
---skip-download-mark-completed
---skip-referer-seen-before
+### `appdata-folder`
 
-// File Size Limits
---maximum-image-size <number>
---minimum-image-size <number>
---maximum-video-size <number>
---minimum-video-size <number>
---maximum-other-size <number>
---minimum-other-size <number>
+| Type   | Default                       |
+| ------ | ----------------------------- |
+| `Path` | `<Current Working Directory>` |
 
-// Filtering Options
---completed-after                      : Filters downloads return by ;'--retry' options to those add/completed after the given date
+Folder where Cyberdrop-DL will store it's database, cache and config files.
 
---completed-before                     : Filters downloads return by '--retry' options to those add/completed before the given date
+### `completed-after`
 
---max-items-retry                      : Limits the number of items returned by '--retry' options to the number given
-// Ignore Options
---exclude-videos
---exclude-images
---excluse-audio
---exclude-other
---ignore-coomer-ads
---skip-hosts <domains>
---only-hosts <domains>
+| Type   | Default |
+| ------ | ------- |
+| `date` | `None`  |
 
-// Runtime Options
---ignore-history
---log-level
---skip-check-for-partial-files
---skip-check-for-empty-folders
---delete-partial-files
---send-unsupported-to-jdownloader
+Only retry downloads that were completed on or after this date. The date should be in ISO 8601 format, for example, `2021-12-23`
 
-// Sorting Options
---sort-downloads                          : enable sorting of downloads
---sort-all-downloads                      : sort all downloads within the scan_dir
---sort-folder                             : set directory to move scanned files to
---scan-folder                             : set a directory to scan recursively for files
+{% hint style="info" %}
+This option has no effect unless you run CDL with `--retry-all`
+{% endhint %}
 
+### `completed-before`
 
-// UI Options
---vi-mode
---refresh-rate
---scraping-item-limit
---downloading-item-limit
+| Type   | Default |
+| ------ | ------- |
+| `date` | `None`  |
+
+Only retry downloads that were completed on or before this date. The date should be in ISO 8601 format, for example, `2021-12-23`
+
+{% hint style="info" %}
+This option has no effect unless you run CDL with `--retry-all`
+{% endhint %}
+
+### `config`
+
+| Type  | Default |
+| ----- | ------- |
+| `str` | `None`  |
+
+Name of config to load.
+
+### `config-file`
+
+| Type   | Default |
+| ------ | ------- |
+| `Path` | `None`  |
+
+Path to the CDL `settings.yaml` file to load
+
+{% hint style="info" %}
+If both `config` and `config-file` are supplied, `config-file` takes priority
+{% endhint %}
+
+### `disable-cache`  
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Disables read/writes to requests cache for the current run only. All config settings or arguments related to the cache (ex: `file_host_cache_expire_after`) will be ignored.
+
+### `download`  
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Skips UI, start download immediately
+
+### `download-tiktok-audios`
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Download TikTok audios from posts and save them as separate files
+
+### `download-tiktok-src-quality-videos`
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+By default, CDL will download the  "optimized for streaming" version of tiktok videos. Setting this option to `True` will download videos in original (source) quality.
+
+`_original` will be added as a suffix to their filename.
+
+{% hint style="warning" %}
+This will make video downloads several times slower
+
+When it is set to `False` (the default) CDL can download 50 videos with a single request.
+When it is set to `True` , CDL needs to make at least 3 requests _per_ video to download them.
+
+There's also a daily limit of the API CDL uses: 5000 requests per day per IP
+
+Setting this option to `True` will consume the daily limit faster
+{% endhint %}
+
+### `impersonate`
+
+| Type                                                                                         | Default | Action                        |
+| -------------------------------------------------------------------------------------------- | ------- | ----------------------------- |
+| `chrome", "edge", "safari", "safari_ios", "chrome_android", "firefox"`, `BoolFlag` or `null` | `null`  | `store_true` or `store_const` |
+
+Impersonation allows CDL to make requests and appear to be a legitimate web browser. This helps bypass bot-protection on some sites and it's required for any site that only accepts HTTP2 connections.
+
+- The default value (`null`) means CDL will automatically use impersonation for crawlers that were programmed to use it.
+- Passing the flag without any value (`--impersonate`) is the same as `--impersonate True`: CDL will use impersonation for ALL requests, using the default impersonation target
+- Passing an specific target (ex: `--impersonate chrome_android`) will make CDL use impersonation for all requests, using that tarjet
+
+{% hint style="info" %}
+The current default target is `chrome`. The default target can change on any new release without notice
+{% endhint %}
+
+### `max-items-retry`
+
+| Type             | Default |
+| ---------------- | ------- |
+| `NonNegativeInt` | `0`     |
+
+Max number of links to retry. Using `0` means no limit
+
+{% hint style="info" %}
+This option has no effect unless you run CDL with one of the retry options: `--retry-all`, `--retry-failed` or `--retry-maintenance`
+{% endhint %}
+
+### `portrait`
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Force CDL to run with a vertical layout
+
+### `print-stats`
+
+| Type       | Default | Action        |
+| ---------- | ------- | ------------- |
+| `BoolFlag` | `True`  | `store_false` |
+
+Show stats report at the end of a run
+
+### `retry-all`
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Retry all downloads
+
+### `retry-failed`  
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Retry failed downloads
+
+### `retry-maintenance`  
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Retry download of maintenance files (bunkr). Requires files to be hashed
+
+### `show-supported-sites`  
+
+| Type       | Default | Action       |
+| ---------- | ------- | ------------ |
+| `BoolFlag` | `False` | `store_true` |
+
+Shows a list of all supported sites and exits
+
+### `ui`  
+
+| Type                     | Default      |
+| ------------------------ | ------------ |
+| `CaseInsensitiveStrEnum` | `FULLSCREEN` |
+
+UI can have 1 of these values:
+
+- `DISABLED` : no output at all
+- `ACTIVITY` : only shows a spinner with the text `running CDL...`
+- `SIMPLE`: shows spinner + simplified progress bar
+- `FULLSCREEN`: shows the normal UI/progress view
+
+{% hint style="info" %}
+Values are case insensitive, ex: both `disabled` and `DISABLED` are valid
+{% endhint %}
+
+## Overview
+
+Bool arguments like options within `Download Options`, `Ignore Options`, `Runtime Options`, etc. can be prefixed with `--no-` to negate them. Ex: `--no-auto-dedupe` will disable auto dedupe, overriding whatever the config option was set to.
+
+```shell
+usage: cyberdrop-dl [OPTIONS] URL [URL...]
+
+Bulk asynchronous downloader for multiple file hosts
+
+options:
+  -h, --help                                                                    show this help message and exit
+  -V, --version                                                                 show CDL version number and exit
+
+CLI-only options:
+  LINK(S)                                                                       link(s) to content to download (passing multiple links is supported)
+  --appdata-folder APPDATA_FOLDER                                               AppData folder path
+  --completed-after COMPLETED_AFTER                                             only retry downloads that were completed on or after this date
+  --completed-before COMPLETED_BEFORE                                           only retry downloads that were completed on or before this date
+  --config CONFIG                                                               name of config to load
+  --config-file CONFIG_FILE                                                     path to the CDL settings.yaml file to load
+  --disable-cache                                                               temporarily disable the requests cache
+  --download                                                                    skips UI, start download immediately
+  --download-tiktok-audios                                                      download TikTok audios from posts and save them as separate files
+  --download-tiktok-src-quality-videos                                          download TikTok videos in source quality
+  --impersonate [IMPERSONATE]                                                   Use this target as impersonation for all scrape requests
+  --max-items-retry MAX_ITEMS_RETRY                                             max number of links to retry
+  --portrait                                                                    force CDL to run with a vertical layout
+  --print-stats                                                                 show stats report at the end of a run
+  --retry-all                                                                   retry all downloads
+  --retry-failed                                                                retry failed downloads
+  --retry-maintenance                                                           retry download of maintenance files (bunkr). Requires files to be hashed
+  --show-supported-sites                                                        shows a list of supported sites and exits
+  --ui UI                                                                       DISABLED, ACTIVITY, SIMPLE or FULLSCREEN
+
+browser_cookies:
+  --auto-import, --no-auto-import
+  --browser BROWSER
+  --sites [SITES ...]
+
+download_options:
+  --block-download-sub-folders, --no-block-download-sub-folders
+  --disable-download-attempt-limit, --no-disable-download-attempt-limit
+  --disable-file-timestamps, --no-disable-file-timestamps
+  --include-album-id-in-folder-name, --no-include-album-id-in-folder-name
+  --include-thread-id-in-folder-name, --no-include-thread-id-in-folder-name
+  --maximum-number-of-children [MAXIMUM_NUMBER_OF_CHILDREN ...]
+  --remove-domains-from-folder-names, --no-remove-domains-from-folder-names
+  --remove-generated-id-from-filenames, --no-remove-generated-id-from-filenames
+  --scrape-single-forum-post, --no-scrape-single-forum-post
+  --separate-posts-format SEPARATE_POSTS_FORMAT
+  --separate-posts, --no-separate-posts
+  --skip-download-mark-completed, --no-skip-download-mark-completed
+  --skip-referer-seen-before, --no-skip-referer-seen-before
+  --maximum-thread-depth MAXIMUM_THREAD_DEPTH
+  --maximum-thread-folder-depth MAXIMUM_THREAD_FOLDER_DEPTH
+
+dupe_cleanup_options:
+  --add-md5-hash, --no-add-md5-hash
+  --add-sha256-hash, --no-add-sha256-hash
+  --auto-dedupe, --no-auto-dedupe
+  --hashing HASHING
+  --send-deleted-to-trash, --no-send-deleted-to-trash
+
+file_size_limits:
+  --maximum-image-size MAXIMUM_IMAGE_SIZE
+  --maximum-other-size MAXIMUM_OTHER_SIZE
+  --maximum-video-size MAXIMUM_VIDEO_SIZE
+  --minimum-image-size MINIMUM_IMAGE_SIZE
+  --minimum-other-size MINIMUM_OTHER_SIZE
+  --minimum-video-size MINIMUM_VIDEO_SIZE
+
+media_duration_limits:
+  --maximum-video-duration MAXIMUM_VIDEO_DURATION
+  --maximum-audio-duration MAXIMUM_AUDIO_DURATION
+  --minimum-video-duration MINIMUM_VIDEO_DURATION
+  --minimum-audio-duration MINIMUM_AUDIO_DURATION
+
+files:
+  -d, --download-folder DOWNLOAD_FOLDER
+  -j, --dump-json, --no-dump-json
+  -i, --input-file INPUT_FILE
+  --save-pages-html, --no-save-pages-html
+
+ignore_options:
+  --exclude-audio, --no-exclude-audio
+  --exclude-images, --no-exclude-images
+  --exclude-other, --no-exclude-other
+  --exclude-videos, --no-exclude-videos
+  --filename-regex-filter FILENAME_REGEX_FILTER
+  --ignore-coomer-ads, --no-ignore-coomer-ads
+  --ignore-coomer-post-content, --no-ignore-coomer-post-content
+  --only-hosts [ONLY_HOSTS ...]
+  --skip-hosts [SKIP_HOSTS ...]
+  --exclude-files-with-no-extension, --no-exclude-files-with-no-extension
+  --exclude-before EXCLUDE_BEFORE
+  --exclude-after EXCLUDE_AFTER
+
+logs:
+  --download-error-urls DOWNLOAD_ERROR_URLS
+  --last-forum-post LAST_FORUM_POST
+  --log-folder LOG_FOLDER
+  --log-line-width LOG_LINE_WIDTH
+  --logs-expire-after LOGS_EXPIRE_AFTER
+  --main-log MAIN_LOG
+  --rotate-logs, --no-rotate-logs
+  --scrape-error-urls SCRAPE_ERROR_URLS
+  --unsupported-urls UNSUPPORTED_URLS
+  --webhook WEBHOOK
+
+runtime_options:
+  --console-log-level CONSOLE_LOG_LEVEL
+  --deep-scrape, --no-deep-scrape
+  --delete-partial-files, --no-delete-partial-files
+  --ignore-history, --no-ignore-history
+  --jdownloader-autostart, --no-jdownloader-autostart
+  --jdownloader-download-dir JDOWNLOADER_DOWNLOAD_DIR
+  --jdownloader-whitelist [JDOWNLOADER_WHITELIST ...]
+  --log-level LOG_LEVEL
+  --send-unsupported-to-jdownloader, --no-send-unsupported-to-jdownloader
+  --skip-check-for-empty-folders, --no-skip-check-for-empty-folders
+  --skip-check-for-partial-files, --no-skip-check-for-partial-files
+  --slow-download-speed SLOW_DOWNLOAD_SPEED
+  --update-last-forum-post, --no-update-last-forum-post
+
+sorting:
+  --scan-folder SCAN_FOLDER
+  --sort-downloads, --no-sort-downloads
+  --sort-folder SORT_FOLDER
+  --sort-incrementer-format SORT_INCREMENTER_FORMAT
+  --sorted-audio SORTED_AUDIO
+  --sorted-image SORTED_IMAGE
+  --sorted-other SORTED_OTHER
+  --sorted-video SORTED_VIDEO
+
+general:
+  --ssl-context SSL_CONTEXT
+  --disable-crawlers [DISABLE_CRAWLERS ...]
+  --enable-generic-crawler, --no-enable-generic-crawler
+  --flaresolverr FLARESOLVERR
+  --max-file-name-length MAX_FILE_NAME_LENGTH
+  --max-folder-name-length MAX_FOLDER_NAME_LENGTH
+  --proxy PROXY
+  --required-free-space REQUIRED_FREE_SPACE
+  --user-agent USER_AGENT
+
+rate_limiting_options:
+  --download-attempts DOWNLOAD_ATTEMPTS
+  --download-delay DOWNLOAD_DELAY
+  --download-speed-limit DOWNLOAD_SPEED_LIMIT
+  --file-host-cache-expire-after FILE_HOST_CACHE_EXPIRE_AFTER
+  --forum-cache-expire-after FORUM_CACHE_EXPIRE_AFTER
+  --jitter JITTER
+  --max-simultaneous-downloads-per-domain MAX_SIMULTANEOUS_DOWNLOADS_PER_DOMAIN
+  --max-simultaneous-downloads MAX_SIMULTANEOUS_DOWNLOADS
+  --rate-limit RATE_LIMIT
+  --connection-timeout CONNECTION_TIMEOUT
+  --read-timeout READ_TIMEOUT
+
+ui_options:
+  --downloading-item-limit DOWNLOADING_ITEM_LIMIT
+  --refresh-rate REFRESH_RATE
+  --scraping-item-limit SCRAPING_ITEM_LIMIT
+  --vi-mode, --no-vi-mode
+
+generic_crawlers_instances:
+  --wordpress-media [WORDPRESS_MEDIA ...]
+  --wordpress-html [WORDPRESS_HTML ...]
+  --discourse [DISCOURSE ...]
+  --chevereto [CHEVERETO ...]
+
 ```
