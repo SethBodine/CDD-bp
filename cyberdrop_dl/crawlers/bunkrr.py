@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from cyberdrop_dl.data_structures.url_objects import ScrapeItem
 
 
-_DOWNLOAD_API_ENTRYPOINT = AbsoluteHttpURL("https://apidl.bunkr.ru/api/_001_v2")
+_DOWNLOAD_API_ENTRYPOINT = AbsoluteHttpURL("https://bunkr.cr/api/vs")
 _REINFORCED_URL = AbsoluteHttpURL("https://get.bunkrr.su")
 
 
@@ -164,16 +164,8 @@ class BunkrrCrawler(Crawler):
         if await self.check_complete_from_referer(db_url):
             return
 
-        src = file.src()
         scrape_item.possible_datetime = self.parse_date(file.date, "%H:%M:%S %d/%m/%Y")
-        if (
-            src.suffix.lower() not in VIDEO_AND_IMAGE_EXTS
-            or "no-image" in src.name
-            or self.deep_scrape
-            or any(cdn in src.host for cdn in DEEP_SCRAPE_CDNS)
-        ):
-            self.create_task(self.run(scrape_item))
-            return
+        src = await self._request_download(file.slug)
 
         if self.check_album_results(src, results):
             return
@@ -186,23 +178,17 @@ class BunkrrCrawler(Crawler):
         if await self.check_complete_from_referer(db_url):
             return
 
-        soup = await self._request_soup_lenient(scrape_item.url)
-        if image := soup.select_one(Selector.IMAGE_PREVIEW):
-            src = self.parse_url(css.get_attr(image, "src"))
-
-        else:
-            dl_link = css.select(soup, Selector.DOWNLOAD_BUTTON, "href")
-            file_id = self.parse_url(dl_link).name
-            src = await self._request_download(file_id)
-
-        name = open_graph.title(soup)  # See: https://github.com/jbsparrow/CyberDropDownloader/issues/929
-        await self._direct_file(scrape_item, src, name)
+        slug = scrape_item.url.parts[-1]
+        src = await self._request_download(slug)
+        await self._direct_file(scrape_item, src)
 
     @error_handling_wrapper
     async def reinforced_file(self, scrape_item: ScrapeItem, file_id: str) -> None:
         soup = await self.request_soup(scrape_item.url)
         name = css.select_text(soup, "h1")
-        src = await self._request_download(file_id)
+        dl_link = css.select(soup, Selector.DOWNLOAD_BUTTON, "href")
+        slug = self.parse_url(dl_link).parts[-1]
+        src = await self._request_download(slug)
         await self._direct_file(scrape_item, src, name)
 
     @error_handling_wrapper
@@ -218,12 +204,12 @@ class BunkrrCrawler(Crawler):
             scrape_item.url = _REINFORCED_URL
         await self.handle_file(link, scrape_item, name, ext, custom_filename=filename)
 
-    async def _request_download(self, file_id: str) -> AbsoluteHttpURL:
+    async def _request_download(self, slug: str) -> AbsoluteHttpURL:
         resp: dict[str, Any] = await self.request_json(
             _DOWNLOAD_API_ENTRYPOINT,
             "POST",
-            json={"id": file_id},
-            headers={"Referer": str(_REINFORCED_URL)},
+            json={"slug": slug},
+            headers={"Referer": "https://bunkr.sk/"},
         )
         return self.parse_url(ApiResponse(**resp).decrypt())
 
