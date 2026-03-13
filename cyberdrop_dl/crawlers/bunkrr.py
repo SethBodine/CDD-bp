@@ -37,27 +37,26 @@ class Selector:
 
 VIDEO_AND_IMAGE_EXTS: set[str] = FILE_FORMATS["Images"] | FILE_FORMATS["Videos"]
 HOST_OPTIONS: set[str] = {"bunkr.site", "bunkr.cr", "bunkr.ph"}
-DEEP_SCRAPE_CDNS: set[str] = {"pizza", "wiener"}  # CDNs under maintanance, ignore them and try to get a cached URL
+DEEP_SCRAPE_CDNS: set[str] = {"burger", "milkshake"}  # CDNs under maintanance, ignore them and try to get a cached URL
 FILE_KEYS = "id", "name", "original", "slug", "type", "extension", "size", "timestamp", "thumbnail", "cdnEndpoint"
 known_bad_hosts: set[str] = set()
 
 
 def _make_album_parser(keys: tuple[str, ...]) -> Callable[[BeautifulSoup], Generator[File]]:
-    translation_map = {f"{key}: ": f'"{key}": ' for key in keys}
-    pattern = re.compile("|".join(sorted(translation_map, key=len, reverse=True)))
+    translation_map = {f" {key}: ": f'"{key}": ' for key in keys}
+    pattern = re.compile("|".join(sorted(translation_map.keys(), key=len, reverse=True)))
+
+    def fix_unicode(value: str) -> str:
+        return value.encode("raw_unicode_escape").decode("unicode-escape")
 
     def decode(text: str) -> Generator[File]:
-        content = (
-            pattern.sub(lambda m: translation_map[m.group(0)], text)
-            .encode("raw_unicode_escape")
-            .decode("unicode-escape")
-        )
+        content = pattern.sub(lambda m: translation_map[m.group(0)], text.replace("\\'", "'"))
 
         for file in json.loads(content):
             yield File(
-                name=file.get("original") or file["name"],
-                slug=file["slug"],
-                thumbnail=file["thumbnail"],
+                name=fix_unicode(file.get("original") or file["name"]),
+                slug=fix_unicode(file["slug"]),
+                thumbnail=fix_unicode(file["thumbnail"]),
                 date=file["timestamp"],
             )
 
@@ -93,6 +92,11 @@ class File:
     slug: str
 
     def src(self) -> AbsoluteHttpURL:
+        if self.thumbnail.count("https://") != 1:
+            raise ValueError
+        if AbsoluteHttpURL(self.thumbnail).parts[1:2] != ("thumbs",):
+            raise ValueError
+
         src_str = self.thumbnail.replace("/thumbs/", "/")
         ext = Path(self.name).suffix
         src = parse_url(src_str).with_suffix(ext).with_query(None)
@@ -164,14 +168,20 @@ class BunkrrCrawler(Crawler):
         if await self.check_complete_from_referer(db_url):
             return
 
-        src = file.src()
+        deep_scrape = False
         scrape_item.possible_datetime = self.parse_date(file.date, "%H:%M:%S %d/%m/%Y")
-        if (
+        try:
+            src = file.src()
+        except ValueError:
+            deep_scrape = True
+
+        deep_scrape = deep_scrape or (
             src.suffix.lower() not in VIDEO_AND_IMAGE_EXTS
             or "no-image" in src.name
             or self.deep_scrape
             or any(cdn in src.host for cdn in DEEP_SCRAPE_CDNS)
-        ):
+        )
+        if deep_scrape:
             self.create_task(self.run(scrape_item))
             return
 
@@ -187,10 +197,13 @@ class BunkrrCrawler(Crawler):
             return
 
         soup = await self._request_soup_lenient(scrape_item.url)
+        src = None
         if image := soup.select_one(Selector.IMAGE_PREVIEW):
             src = self.parse_url(css.get_attr(image, "src"))
+            if len(src.parts) > 2:
+                src = None
 
-        else:
+        if not src:
             dl_link = css.select(soup, Selector.DOWNLOAD_BUTTON, "href")
             file_id = self.parse_url(dl_link).name
             src = await self._request_download(file_id)
@@ -216,7 +229,7 @@ class BunkrrCrawler(Crawler):
             scrape_item.url = scrape_item.url.with_host(self.DATABASE_PRIMARY_HOST)
         elif link.host == scrape_item.url.host:
             scrape_item.url = _REINFORCED_URL
-        await self.handle_file(link, scrape_item, name, ext, custom_filename=filename)
+        await self.handle_file(_override_cdn(link), scrape_item, name, ext, custom_filename=filename)
 
     async def _request_download(self, file_id: str) -> AbsoluteHttpURL:
         resp: dict[str, Any] = await self.request_json(
@@ -281,4 +294,6 @@ def _is_stream_redirect(url: AbsoluteHttpURL) -> bool:
 def _override_cdn(url: AbsoluteHttpURL) -> AbsoluteHttpURL:
     if "milkshake" in url.host:
         return url.with_host("mlk-bk.cdn.gigachad-cdn.ru")
+    if "burger." in url.host:
+        return url.with_host("brg-bk.cdn.gigachad-cdn.ru")
     return url
