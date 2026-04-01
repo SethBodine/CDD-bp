@@ -13,6 +13,8 @@ class Selector:
     IMAGE = ".reading-content .page-break.no-gaps img"
     SERIES_TITLE = ".post-title > h1"
     CHAPTER_TITLE = "#chapter-heading"
+    CHAPTER_NAME = ".breadcrumb li.active"
+    SERIES_NAME = ".breadcrumb > li:nth-child(3)"
 
 
 class ToonilyCrawler(Crawler):
@@ -50,7 +52,11 @@ class ToonilyCrawler(Crawler):
     async def chapter(self, scrape_item: ScrapeItem) -> None:
         soup = await self.request_soup(scrape_item.url, impersonate=True)
 
-        series_name, chapter_title = css.select_text(soup, Selector.CHAPTER_TITLE).split(" - ", 1)
+        series_name = css.select_text(soup, Selector.SERIES_NAME)
+        chapter_title = css.select_text(soup, Selector.CHAPTER_NAME)
+        if not series_name or not chapter_title:
+            raise ValueError(422, "Could not find series or chapter name")
+
         if scrape_item.type != FILE_HOST_PROFILE:
             series_title = self.create_title(series_name)
             scrape_item.add_to_parent_title(series_title)

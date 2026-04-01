@@ -4,12 +4,12 @@ TEST_CASES = [
         "https://toonily.com/serie/black-crow/",
         [
             {
-                "url": "https://cdn.toonily.com/chapters/manga_66d8f7bfa8ed9/03ae6f538b989573c121b28f7af4f38a/01.jpg",
+                "url": "https://data.tnlycdn.com/chapters/manga_66d8f7bfa8ed9/03ae6f538b989573c121b28f7af4f38a/01.jpg",
                 "filename": "01.jpg",
-                "referer": "https://toonily.com/serie/black-crow/chapter-1",
+                "referer": "https://toonily.com/serie/black-crow-6780cc7a/chapter-1",
                 "album_id": None,
                 "datetime": 1725498328,
-                "download_folder": r"re:Black Crow \(Toonily\)/Chapter 1",
+                "download_folder": r"re:Black Crow \(Toonily\)[/\\]Chapter 1",
             }
         ],
         1634,
@@ -18,14 +18,28 @@ TEST_CASES = [
         "https://toonily.com/serie/black-crow/chapter-1/",
         [
             {
-                "url": "https://cdn.toonily.com/chapters/manga_66d8f7bfa8ed9/03ae6f538b989573c121b28f7af4f38a/01.jpg",
+                "url": "https://data.tnlycdn.com/chapters/manga_66d8f7bfa8ed9/03ae6f538b989573c121b28f7af4f38a/01.jpg",
                 "filename": "01.jpg",
                 "referer": "https://toonily.com/serie/black-crow/chapter-1",
                 "album_id": None,
                 "datetime": 1725498328,
-                "download_folder": r"re:Black Crow \(Toonily\)/Chapter 1",
+                "download_folder": r"re:Black Crow \(Toonily\)[/\\]Chapter 1",
             }
         ],
         50,
+    ),
+    (
+        "https://toonily.com/serie/glorious-homecoming-440a49b5/chapter-36/",
+        [
+            {
+                "url": "https://data.tnlycdn.com/chapters/manga_6854074472aee/0dfcf10d96725a78c8f5ca0f92ab3efb/01.jpg",
+                "filename": "01.jpg",
+                "referer": "https://toonily.com/serie/glorious-homecoming-440a49b5/chapter-36",
+                "album_id": None,
+                "datetime": 1750337419,
+                "download_folder": r"re:Glorious Homecoming \(Toonily\)[/\\]Chapter 36",
+            }
+        ],
+        13,
     ),
 ]
